@@ -25,6 +25,7 @@
 
     </el-table>
 
+      <!-- 分页 -->
     <el-pagination style="text-align:center" :current-page="page" :page-sizes="[3,6,9]" :page-size="limit"
       layout=" prev, pager, next, jumper,->, sizes,total" :total="total" background @current-change="getTrademarks"
       @size-change="handleSizeChange" />

@@ -1,11 +1,11 @@
 <template>
   <div>
     <el-card>
-      <CategorySelector @categoryChange="handleCategoryChange"/>
+      <CategorySelector @categoryChange="handleCategoryChange" ref="cs"/>
     </el-card>
     <el-card style="margin-top:20px;">
       <div v-show="isShowList">
-        <el-button type="primary" icon="el-icon-plus" @click="showAdd">添加属性</el-button>
+        <el-button type="primary" icon="el-icon-plus" @click="showAdd" :disabled="!category3Id">添加属性</el-button>
         <el-table :data="attrs" border v-loading="loading">
           <el-table-column label="序号" type="index" width="80" align="center"></el-table-column>
           <el-table-column label="属性名称" prop="attrName" width="150"></el-table-column>
@@ -27,11 +27,19 @@
             <template slot-scope="{row, $index}">
               <hint-button title="修改属性" type="primary" icon="el-icon-edit" size="mini"
                 @click="showUpdate(row)"></hint-button>
-              <HintButton title="删除属性" type="danger" icon="el-icon-delete" size="mini"></HintButton>
+
+                <!-- 删除气泡把button扔进去 -->
+              <el-popconfirm :title="`确定删除 ${row.attrName} 吗?`"
+                @onConfirm="deleteAttr(row.id)">
+                 <HintButton slot="reference" title="删除属性" type="danger" icon="el-icon-delete" size="mini"></HintButton>
+              </el-popconfirm>
+
             </template>
           </el-table-column>
         </el-table>
       </div>
+
+
 
       <div v-show="!isShowList">
         <el-form inline>
@@ -40,20 +48,21 @@
           </el-form-item>
         </el-form>
 
-        <el-button type="primary" icon="el-icon-plus" @click="addAttrValue">添加属性值</el-button>
+        <el-button type="primary" icon="el-icon-plus" @click="addAttrValue" :disabled="!attr.attrName">添加属性值</el-button>
         <el-button @click="isShowList=true">取消</el-button>
 
         <el-table border style="margin: 20px 0" :data="attr.attrValueList">
           <el-table-column label="序号" type="index" width="80" align="center"></el-table-column>
           <el-table-column label="属性值名称">
             <template slot-scope="{row, $index}">
-              <el-input :ref="$index" v-if="row.edit" v-model="row.valueName" placeholder="请输入名称"
+              <el-input :ref="$index" v-if="row.edit" v-model="row.valueName" placeholder="请输入名称" size="mini"
                 @blur="toList(row)" @keyup.enter.native="toList(row)"/>
-              <span v-else @click="toEdit(row, $index)">{{row.valueName}}</span>
+              <span v-else @click="toEdit(row, $index)" style="display: inline-block; width: 100%;">{{row.valueName}}</span>
             </template>
           </el-table-column>
           <el-table-column label="操作">
             <template slot-scope="{row, $index}">
+              <!-- 删除气泡框 -->
               <el-popconfirm :title="`确定删除 ${row.valueName} 吗?`"
                 @onConfirm="attr.attrValueList.splice($index, 1)">
                  <hint-button slot="reference" title="删除" type="danger" icon="el-icon-delete" size="mini"></hint-button>
@@ -62,7 +71,8 @@
           </el-table-column>
         </el-table>
 
-        <el-button type="primary">保存</el-button>
+        <el-button type="primary" :disabled="!attr.attrName || attr.attrValueList.length === 0"
+        @click="addOrUpdate">保存</el-button>
         <el-button @click="isShowList=true">取消</el-button>
       </div>
 
@@ -71,6 +81,7 @@
 </template>
 
 <script>
+import cloneDeep from 'lodash/cloneDeep'
 export default {
   name: 'AttrList',
   data () {
@@ -89,15 +100,94 @@ export default {
       }, // 当前要操作的属性对象
     }
   },
+
+
+        // 监视isShowList的变化
+      watch: {
+       // 让分类列表组件(子组件)的disabled变为true/false
+      // 父组件主动更新子组件的数据
+          isShowList(value){
+          this.$refs.cs.disabled = !value
+
+        },
+      },
+
   async mounted () {
     // const result = await this.$API.attr.getList(2, 13, 61)
     // console.log('result', result)
-    this.category1Id = 2
-    this.category2Id = 13
-    this.category3Id = 61
-    this.getAttrs()
+    // this.category1Id = 2
+    // this.category2Id = 13
+    // this.category3Id = 61
+    // this.getAttrs()
   },
   methods: {
+
+     /*
+    删除属性
+    */
+    async deleteAttr (id){
+      console.log(1);
+
+      const result = await this.$API.attr.remove(id)
+      if (result.code===200) {
+        this.$message.success('删除属性成功')
+        this.getAttrs()
+      } else {
+        this.$message.error('删除属性失败')
+      }
+    },
+
+
+    /*
+    添加/更新属性
+    */
+    async addOrUpdate () {
+      // 准备数据
+      const {attr} = this
+      // 在发请求需要对数据进行必要的整理与检查操作
+      /*
+      没有指定属性值名称的属性也会提交给后台
+      提交的数据中包含没必要的edit属性
+      如果一个属性值名称都没有, 也提交了请求
+      */
+      // 对属性值列表进行过滤:
+      attr.attrValueList = attr.attrValueList.filter(attrValue =>{
+            if(attrValue.valueName){
+              // 删除对象中的edit属性
+              delete attrValue.edit
+              return true
+            }
+            return false
+      })
+
+      if(attr.attrValueList.length === 0){
+        this.$message.warning('至少指定一个属性值名称')
+        return
+      }
+
+
+
+
+      // 发添加或更新的请求
+      const result= await this.$API.attr.save(attr)  // attr中有id是更新, 没有id是保存
+
+      // 如果成功了
+      if (result.code===200) {
+        // 提示成功
+        this.$message.success('保存属性成功')
+        // 显示列表界面
+        this.isShowList = true
+        // 重新获取属性列表显示
+        this.getAttrs()
+      } else {
+        // 如果失败了, 提示请求失败
+        this.$message.error('保存属性失败')
+      }
+    },
+
+
+
+
     /*
     将指定属性名称从编辑模式变为查看
     */
@@ -167,7 +257,10 @@ export default {
     */
     showUpdate (attr) {
       // 保存attr
-      this.attr = attr
+      // this.attr = attr
+      // this.attr = {...attr}
+      // /对列表的attr进行深拷贝
+      this.attr = cloneDeep(attr)
       // 显示更新界面
       this.isShowList = false
     },
@@ -179,10 +272,12 @@ export default {
         // 重置二级与三级分类的数据
         this.category2Id = null
         this.category3Id = null
+        this.attrs = []   //重置属性列表
         this.category1Id = categoryId
       } else if (level===2) {
         // 重置三级分类的数据
         this.category3Id = null
+         this.attrs = []   //重置属性列表
         this.category2Id = categoryId
       } else {
         this.category3Id = categoryId
